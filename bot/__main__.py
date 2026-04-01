@@ -10,4 +10,7 @@ if __name__ == "__main__":
         logging.INFO if Config.DEBUG else logging.WARNING
     )
 
-    UtubeBot().run()
+    bot = UtubeBot()
+    bot.start()
+    print("Bot is running...")
+    bot.idle()
