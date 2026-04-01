@@ -1,3 +1,6 @@
+from pyrogram import StopTransmission, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+
 import os
 import time
 import string
@@ -6,10 +9,6 @@ import logging
 import asyncio
 import datetime
 from typing import Tuple, Union
-
-from pyrogram import StopTransmission
-from pyrogram import filters as Filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
 from ..translations import Messages as tr
 from ..helpers.downloader import Downloader
@@ -22,96 +21,95 @@ log = logging.getLogger(__name__)
 
 
 @UtubeBot.on_message(
-    Filters.private
-    & Filters.incoming
-    & Filters.command("upload")
-    & Filters.user(Config.AUTH_USERS)
+    filters.private
+    & filters.incoming
+    & filters.command("upload")
+    & filters.user(Config.AUTH_USERS)
 )
 async def _upload(c: UtubeBot, m: Message):
+
     if not os.path.exists(Config.CRED_FILE):
-        await m.reply_text(tr.NOT_AUTHENTICATED_MSG, True)
+        await m.reply_text(tr.NOT_AUTHENTICATED_MSG)
         return
 
     if not m.reply_to_message:
-        await m.reply_text(tr.NOT_A_REPLY_MSG, True)
+        await m.reply_text(tr.NOT_A_REPLY_MSG)
         return
 
     message = m.reply_to_message
 
     if not message.media:
-        await m.reply_text(tr.NOT_A_MEDIA_MSG, True)
+        await m.reply_text(tr.NOT_A_MEDIA_MSG)
         return
 
     if not valid_media(message):
-        await m.reply_text(tr.NOT_A_VALID_MEDIA_MSG, True)
+        await m.reply_text(tr.NOT_A_VALID_MEDIA_MSG)
         return
 
     if c.counter >= 6:
-        await m.reply_text(tr.DAILY_QOUTA_REACHED, True)
+        await m.reply_text(tr.DAILY_QOUTA_REACHED)
+        return   # ✅ FIXED
 
-    snt = await m.reply_text(tr.PROCESSING, True)
+    snt = await m.reply_text(tr.PROCESSING)
     c.counter += 1
+
     download_id = get_download_id(c.download_controller)
     c.download_controller[download_id] = True
 
     download = Downloader(m)
     status, file = await download.start(progress, snt, c, download_id)
-    log.debug(status, file)
+
+    log.debug(f"{status}, {file}")
     c.download_controller.pop(download_id)
 
     if not status:
-        c.counter -= 1
-        c.counter = max(0, c.counter)
+        c.counter = max(0, c.counter - 1)
         await snt.edit_text(text=file, parse_mode="markdown")
         return
 
     try:
-        await snt.edit_text("Downloaded to local, Now starting to upload to youtube...")
+        await snt.edit_text("Downloaded. Now uploading to YouTube...")
     except Exception as e:
         log.warning(e, exc_info=True)
-        pass
 
-    title = " ".join(m.command[1:])
+    title = " ".join(m.command[1:]) if len(m.command) > 1 else "Uploaded via Bot"
+
     upload = Uploader(file, title)
     status, link = await upload.start(progress, snt)
-    log.debug(status, link)
+
+    log.debug(f"{status}, {link}")
+
     if not status:
-        c.counter -= 1
-        c.counter = max(0, c.counter)
+        c.counter = max(0, c.counter - 1)
+
     await snt.edit_text(text=link, parse_mode="markdown")
 
 
 def get_download_id(storage: dict) -> str:
     while True:
-        download_id = "".join([random.choice(string.ascii_letters) for i in range(3)])
+        download_id = "".join(random.choice(string.ascii_letters) for _ in range(3))
         if download_id not in storage:
-            break
-    return download_id
+            return download_id
 
 
 def valid_media(media: Message) -> bool:
-    if media.video:
-        return True
-    elif media.video_note:
-        return True
-    elif media.animation:
-        return True
-    elif media.document and "video" in media.document.mime_type:
-        return True
-    else:
-        return False
+    return bool(
+        media.video
+        or media.video_note
+        or media.animation
+        or (media.document and "video" in media.document.mime_type)
+    )
 
 
 def human_bytes(
     num: Union[int, float], split: bool = False
 ) -> Union[str, Tuple[int, str]]:
     base = 1024.0
-    sufix_list = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"]
+    sufix_list = ["B", "KB", "MB", "GB", "TB"]
+
     for unit in sufix_list:
         if abs(num) < base:
-            if split:
-                return round(num, 2), unit
-            return f"{round(num, 2)} {unit}"
+            return (round(num, 2), unit) if split else f"{round(num, 2)} {unit}"
         num /= base
 
 
@@ -128,25 +126,42 @@ async def progress(
         raise StopTransmission
 
     try:
-        diff = int(time.time() - start_time)
+        diff = int(time.time() - start_time) or 1
 
         if (int(time.time()) % 5 == 0) or (cur == tot):
             await asyncio.sleep(1)
+
             speed, unit = human_bytes(cur / diff, True)
             curr = human_bytes(cur)
             tott = human_bytes(tot)
-            eta = datetime.timedelta(seconds=int(((tot - cur) / (1024 * 1024)) / speed))
+
+            eta = datetime.timedelta(
+                seconds=int(((tot - cur) / (1024 * 1024)) / max(speed, 1))
+            )
             elapsed = datetime.timedelta(seconds=diff)
-            progress = round((cur * 100) / tot, 2)
-            text = f"{status}\n\n{progress}% done.\n{curr} of {tott}\nSpeed: {speed} {unit}PS"
-            f"\nETA: {eta}\nElapsed: {elapsed}"
+            progress_percent = round((cur * 100) / tot, 2)
+
+            text = (
+                f"{status}\n\n"
+                f"{progress_percent}% done\n"
+                f"{curr} of {tott}\n"
+                f"Speed: {speed} {unit}/s\n"
+                f"ETA: {eta}\n"
+                f"Elapsed: {elapsed}"
+            )
+
             await snt.edit_text(
                 text=text,
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("Cancel!", f"cncl+{download_id}")]]
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "Cancel!", callback_data=f"cncl+{download_id}"
+                            )
+                        ]
+                    ]
                 ),
             )
 
     except Exception as e:
         log.info(e)
-        pass
