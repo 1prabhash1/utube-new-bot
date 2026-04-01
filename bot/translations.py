@@ -31,7 +31,7 @@ class Messages:
 
         "**Now let's authorize.**\n\n"
         "Open the provided link, allow access, copy the code, and send:\n"
-        "`/authorise YOUR_CODE`\n\n"
+        "/authorise YOUR_CODE\n\n"
         "Don’t worry — your data is safe."
     ]
 
