@@ -1,6 +1,6 @@
 import time
 import logging
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, Callable
 
 from pyrogram.types import Message
 
@@ -12,13 +12,13 @@ class Downloader:
     def __init__(self, m: Message):
         self.m = m
         self.status: Optional[bool] = None
-        self.callback: Optional[callable] = None
+        self.callback: Optional[Callable] = None
         self.args: Optional[tuple] = None
         self.message: Optional[str] = None
         self.start_time: Optional[float] = None
         self.downloaded_file: Optional[str] = None
 
-    async def start(self, progress: callable = None, *args) -> Tuple[bool, str]:
+    async def start(self, progress: Callable = None, *args) -> Tuple[bool, str]:
         self.callback = progress
         self.args = args
 
@@ -28,18 +28,23 @@ class Downloader:
 
     async def _download(self) -> None:
         try:
+            if not self.m.reply_to_message:
+                self.status = False
+                self.message = "No message to download from."
+                return
+
             self.start_time = time.time()
 
             self.downloaded_file = await self.m.reply_to_message.download(
                 progress=self._callback
             )
 
-            log.debug(self.downloaded_file)
+            log.debug(f"Downloaded file: {self.downloaded_file}")
 
             if not self.downloaded_file:
                 self.status = False
                 self.message = (
-                    "Download failed either because user cancelled or telegram refused!"
+                    "Download failed (cancelled or Telegram refused the file)."
                 )
             else:
                 self.status = True
@@ -48,10 +53,15 @@ class Downloader:
         except Exception as e:
             log.error(e, exc_info=True)
             self.status = False
-            self.message = f"Error occuered during download.\nError details: {e}"
+            self.message = f"Error occurred during download.\nDetails: {e}"
 
     async def _callback(self, cur: Union[int, float], tot: Union[int, float]) -> None:
         if not self.callback:
             return
 
-        await self.callback(cur, tot, self.start_time, "Downloading...", *self.args)
+        try:
+            await self.callback(
+                cur, tot, self.start_time, "Downloading...", *self.args
+            )
+        except Exception as e:
+            log.warning(f"Progress callback error: {e}")
