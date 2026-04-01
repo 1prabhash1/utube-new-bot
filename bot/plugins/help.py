@@ -1,4 +1,4 @@
-from pyrogram import filters as Filters
+from pyrogram import filters
 from pyrogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
@@ -33,21 +33,23 @@ def map_btns(pos):
 
 
 @UtubeBot.on_message(
-    Filters.private
-    & Filters.incoming
-    & Filters.command("help")
-    & Filters.user(Config.AUTH_USERS)
+    filters.private
+    & filters.incoming
+    & filters.command("help")
+    & filters.user(Config.AUTH_USERS)
 )
 async def _help(c: UtubeBot, m: Message):
-    await m.reply_chat_action("typing")
+    await c.send_chat_action(m.chat.id, "typing")
+
     await m.reply_text(
         text=tr.HELP_MSG[1],
         reply_markup=InlineKeyboardMarkup(map_btns(1)),
     )
 
 
-help_callback_filter = Filters.create(
-    lambda _, __, query: query.data.startswith("help+")
+# ✅ Updated custom filter
+help_callback_filter = filters.create(
+    lambda _, __, query: query.data and query.data.startswith("help+")
 )
 
 
@@ -55,6 +57,8 @@ help_callback_filter = Filters.create(
 async def help_answer(c: UtubeBot, q: CallbackQuery):
     pos = int(q.data.split("+")[1])
     await q.answer()
+
     await q.edit_message_text(
-        text=tr.HELP_MSG[pos], reply_markup=InlineKeyboardMarkup(map_btns(pos))
+        text=tr.HELP_MSG[pos],
+        reply_markup=InlineKeyboardMarkup(map_btns(pos)),
     )
